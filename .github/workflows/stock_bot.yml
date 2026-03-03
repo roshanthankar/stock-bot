@@ -1,0 +1,35 @@
+name: Daily Stock Analysis
+
+on:
+  schedule:
+    # Runs at 2:30 AM UTC = 8:00 AM IST (Mon-Fri)
+    - cron: '30 2 * * 1-5'
+  
+  # This lets you run it manually anytime for testing
+  workflow_dispatch:
+
+jobs:
+  run-stock-bot:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Step 1: Get your code
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      # Step 2: Setup Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      # Step 3: Install libraries
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      # Step 4: Run the stock analysis
+      - name: Run stock analysis
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py
