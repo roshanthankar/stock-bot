@@ -1,4 +1,14 @@
-venv/
 .env
+.fyers_token.json
+run_log.json
 __pycache__/
 *.pyc
+venv/
+*.logdebug.py
+authorize.py
+exchange_token.py
+test_fyers.py
+debug.py
+authorize.py
+exchange_token.py
+test_fyers.py
