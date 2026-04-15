@@ -2,6 +2,7 @@
 
 A personal automated stock scanner for NSE India. Runs every weekday at **8:00 AM IST** via GitHub Actions — no servers, no cost, zero manual effort. Scans 229 stocks, applies 5-step smart investor analysis, checks company health and news, then sends a clean Telegram report with picks, exact buy/target/stop prices, and reasoning.
 
+Get more info here: https://roshanthankar.vercel.app/stockbot.html
 ---
 
 ## What You Receive Every Morning
