@@ -202,6 +202,19 @@ def check_batch(symbols: list, delay: float = 0.5) -> dict:
     passed  = sum(1 for r in results.values() if r["fundamental_ok"])
     blocked = sum(1 for r in results.values() if not r["fundamental_ok"])
     print(f"  Fundamentals: {passed}/{len(symbols)} passed | {blocked} filtered out")
+
+    # Sentinel: if we got zero PE ratios across all symbols, Screener's
+    # HTML has likely changed and our regex no longer matches. Without
+    # this we'd silently approve every stock with the "Profitable" default.
+    with_pe        = sum(1 for r in results.values() if r.get("pe_ratio"))
+    with_real_data = sum(1 for r in results.values()
+                         if r.get("summary") not in ("", "Profitable company ✅",
+                                                     "Fundamental check skipped",
+                                                     "Data unavailable"))
+    if len(symbols) >= 5 and with_pe == 0 and with_real_data == 0:
+        print(f"  ⚠️ Screener scraper returned no PE for any of {len(symbols)} stocks — "
+              f"HTML may have changed. Fundamentals are NOT being verified.")
+
     return results
 
 
