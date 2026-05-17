@@ -169,6 +169,12 @@ def check_earnings(symbol: str) -> dict:
 # BATCH CHECK
 # ══════════════════════════════════════════════════════════
 
+def calendar_available() -> bool:
+    """Did the most recent _fetch_nse_earnings call succeed? Used by main.py
+    to detect state transitions and send Telegram alerts on outages."""
+    return _cache_loaded
+
+
 def check_earnings_batch(symbols: list) -> dict:
     """
     Check earnings for a list of symbols.
