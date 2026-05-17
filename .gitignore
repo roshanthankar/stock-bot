@@ -1,13 +1,13 @@
 .env
+.env.local
 .fyers_token.json
+.fyers_token_manual.txt
 run_log.json
 __pycache__/
 *.pyc
 venv/
-*.logdebug.py
-authorize.py
-exchange_token.py
-test_fyers.py
+*.log
+.DS_Store
 debug.py
 authorize.py
 exchange_token.py

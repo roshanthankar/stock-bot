@@ -23,7 +23,7 @@ import os
 import sys
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -55,6 +55,24 @@ def validate_credentials() -> bool:
 # TRADING DAY CHECK
 # ══════════════════════════════════════════════════════════
 
+NSE_HOLIDAYS = {
+    2026: [
+        "2026-01-26", "2026-02-19", "2026-03-20",
+        "2026-04-02", "2026-04-03", "2026-04-14",
+        "2026-05-01", "2026-08-15", "2026-08-27",
+        "2026-10-02", "2026-10-22", "2026-10-23",
+        "2026-11-04", "2026-12-25",
+    ],
+    2027: [
+        "2027-01-26", "2027-03-11", "2027-03-26",
+        "2027-04-14", "2027-05-01", "2027-08-15",
+        "2027-09-16", "2027-10-02", "2027-10-19",
+        "2027-11-10", "2027-12-25",
+    ],
+}
+LAST_KNOWN_HOLIDAY_YEAR = max(NSE_HOLIDAYS.keys())
+
+
 def is_trading_day() -> bool:
     today   = datetime.now()
     weekday = today.weekday()
@@ -63,14 +81,12 @@ def is_trading_day() -> bool:
         print(f"  Market check: Weekend — skipping")
         return False
 
-    nse_holidays_2026 = [
-        "2026-01-26", "2026-02-19", "2026-03-20",
-        "2026-04-02", "2026-04-03", "2026-04-14",
-        "2026-05-01", "2026-08-15", "2026-08-27",
-        "2026-10-02", "2026-10-22", "2026-10-23",
-        "2026-11-04", "2026-12-25",
-    ]
-    if today.strftime("%Y-%m-%d") in nse_holidays_2026:
+    if today.year > LAST_KNOWN_HOLIDAY_YEAR:
+        print(f"  ⚠️ NSE holiday list missing for {today.year} — "
+              f"only {LAST_KNOWN_HOLIDAY_YEAR} loaded. Update NSE_HOLIDAYS in main.py.")
+
+    holidays = NSE_HOLIDAYS.get(today.year, [])
+    if today.strftime("%Y-%m-%d") in holidays:
         print("  Market check: NSE Holiday — skipping")
         return False
 
@@ -116,13 +132,20 @@ def apply_sector_diversification(candidates: list, max_picks: int) -> list:
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_log.json")
 
 def _load_log() -> list:
+    """Local file is authoritative if present (faster, no network).
+    Otherwise pull from Gist — needed on ephemeral CI containers."""
     try:
         if os.path.exists(LOG_FILE):
             with open(LOG_FILE) as f:
                 return json.load(f)
     except Exception:
         pass
-    return []
+
+    try:
+        from gist_pusher import fetch_run_log
+        return fetch_run_log()
+    except Exception:
+        return []
 
 def _save_log(log: list):
     try:
@@ -131,25 +154,124 @@ def _save_log(log: list):
     except Exception:
         pass
 
-def log_run(status: str, picks: int, scanned: int, error: str = ""):
+    try:
+        from gist_pusher import push_run_log
+        push_run_log(log)
+    except Exception:
+        pass
+
+def log_run(status: str, picks: int, scanned: int, error: str = "",
+            open_picks: list = None):
+    """Append a run entry. open_picks is a list of {symbol, entry, target,
+    stop_loss, date} dicts that resolve_open_picks() will check next run."""
     log = _load_log()
     log.append({
-        "date":    datetime.now().strftime("%Y-%m-%d"),
-        "time":    datetime.now().strftime("%H:%M:%S"),
-        "status":  status,
-        "picks":   picks,
-        "scanned": scanned,
-        "error":   error
+        "date":       datetime.now().strftime("%Y-%m-%d"),
+        "time":       datetime.now().strftime("%H:%M:%S"),
+        "status":     status,
+        "picks":      picks,
+        "scanned":    scanned,
+        "error":      error,
+        "open_picks": open_picks or [],
     })
     _save_log(log)
 
-def get_weekly_performance() -> dict:
-    log         = _load_log()
-    wins        = sum(1 for r in log[-5:] if r.get("picks", 0) > 0)
-    all_wins    = sum(1 for r in log if r.get("picks", 0) > 0)
-    all_total   = len([r for r in log if r.get("status") == "SUCCESS"])
-    all_time_wr = round(all_wins / all_total * 100) if all_total > 0 else 0
-    return {"wins": wins, "losses": 0, "open": 0, "all_time_win_rate": all_time_wr}
+
+def resolve_open_picks(fyers) -> dict:
+    """Check every open pick from prior runs against current price.
+    Records a 'WIN' if high since entry >= target, 'LOSS' if low <= stop,
+    or leaves it open. Returns counts for the current week."""
+    from fyers_fetcher import get_historical_data
+
+    log = _load_log()
+    if not log:
+        return {"wins": 0, "losses": 0, "open": 0,
+                "all_time_wins": 0, "all_time_losses": 0}
+
+    today  = datetime.now()
+    cutoff = today - timedelta(days=7)
+
+    for entry in log:
+        for pick in entry.get("open_picks", []):
+            if pick.get("outcome"):
+                continue
+
+            try:
+                entry_dt = datetime.strptime(pick["date"], "%Y-%m-%d")
+            except Exception:
+                pick["outcome"] = "UNKNOWN"
+                continue
+
+            days_held = (today - entry_dt).days
+            if days_held <= 0:
+                continue
+
+            df = get_historical_data(pick["symbol"],
+                                     days=max(days_held + 2, 10),
+                                     fyers=fyers)
+            if df.empty:
+                continue
+
+            since = df[df.index >= entry_dt]
+            if since.empty:
+                continue
+
+            max_high = float(since["high"].max())
+            min_low  = float(since["low"].min())
+
+            if max_high >= pick["target"]:
+                pick["outcome"] = "WIN"
+            elif min_low <= pick["stop_loss"]:
+                pick["outcome"] = "LOSS"
+            elif days_held >= 21:
+                pick["outcome"] = "EXPIRED"
+
+    _save_log(log)
+
+    week_wins = week_losses = week_open = 0
+    all_wins  = all_losses = 0
+
+    for entry in log:
+        try:
+            entry_dt = datetime.strptime(entry.get("date", ""), "%Y-%m-%d")
+        except Exception:
+            continue
+
+        in_week = entry_dt >= cutoff
+        for pick in entry.get("open_picks", []):
+            outcome = pick.get("outcome", "OPEN")
+            if outcome == "WIN":
+                all_wins += 1
+                if in_week: week_wins += 1
+            elif outcome == "LOSS":
+                all_losses += 1
+                if in_week: week_losses += 1
+            elif in_week:
+                week_open += 1
+
+    return {
+        "wins":            week_wins,
+        "losses":          week_losses,
+        "open":            week_open,
+        "all_time_wins":   all_wins,
+        "all_time_losses": all_losses,
+    }
+
+
+def get_weekly_performance(fyers=None) -> dict:
+    """Resolves any open picks against today's prices, then summarises."""
+    stats = resolve_open_picks(fyers) if fyers else {
+        "wins": 0, "losses": 0, "open": 0,
+        "all_time_wins": 0, "all_time_losses": 0,
+    }
+    total = stats["all_time_wins"] + stats["all_time_losses"]
+    all_time_wr = round(stats["all_time_wins"] / total * 100) if total else 0
+    return {
+        "wins":              stats["wins"],
+        "losses":            stats["losses"],
+        "open":              stats["open"],
+        "all_time_win_rate": all_time_wr,
+    }
 
 
 # ══════════════════════════════════════════════════════════
@@ -201,11 +323,11 @@ def run():
     # ── Friday report ─────────────────────────────────────
     if weekday == 4:
         print("\n  Sending Friday performance report...")
-        send_message(format_friday_report(get_weekly_performance()))
+        send_message(format_friday_report(get_weekly_performance(fyers)))
 
     # ── Fetch stock data ──────────────────────────────────
     print(f"\n  Fetching {len(ALL_STOCKS)} stocks...")
-    stock_data = fetch_batch(ALL_STOCKS, delay=0.5)
+    stock_data = fetch_batch(ALL_STOCKS, delay=0.2, max_workers=4)
 
     if not stock_data:
         send_message("🚨 *Stock Bot Alert*\n❌ No data fetched — Fyers API may be down.")
@@ -279,7 +401,26 @@ def run():
 
     if sent:
         print("  ✅ Report sent successfully")
-        log_run("SUCCESS", len(final_picks), len(stock_data))
+        open_picks = [
+            {
+                "symbol":    p["symbol"],
+                "entry":     p["price"],
+                "target":    p["target"],
+                "stop_loss": p["stop_loss"],
+                "date":      today.strftime("%Y-%m-%d"),
+            }
+            for p in final_picks
+        ]
+        log_run("SUCCESS", len(final_picks), len(stock_data),
+                open_picks=open_picks)
+
+        # Push to iOS widget
+        from gist_pusher import push_to_gist, push_no_picks
+        if final_picks:
+            push_to_gist(final_picks, market)
+        else:
+            push_no_picks(market)
+
     else:
         print("  ❌ Failed to send report")
         log_run("FAILED", 0, len(stock_data), "Telegram send failed")

@@ -552,6 +552,7 @@ def analyse_stock(symbol: str, data: dict) -> Optional[dict]:
 
 def analyse_all(stock_data: dict) -> list:
     results = []
+    errors  = []
     total   = len(stock_data)
     print(f"  Analysing {total} stocks...")
 
@@ -561,11 +562,20 @@ def analyse_all(stock_data: dict) -> list:
             if result:
                 result["symbol"] = symbol
                 results.append(result)
-        except Exception:
+        except Exception as e:
+            errors.append((symbol, type(e).__name__, str(e)[:80]))
             continue
 
     results.sort(key=lambda x: x["confidence"], reverse=True)
     print(f"  Found {len(results)} candidates from {total} stocks")
+
+    if errors:
+        print(f"  ⚠️ {len(errors)} stocks raised exceptions:")
+        for sym, etype, msg in errors[:5]:
+            print(f"     {sym}: {etype}: {msg}")
+        if len(errors) > 5:
+            print(f"     ...and {len(errors) - 5} more")
+
     return results
 
 

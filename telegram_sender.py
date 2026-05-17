@@ -23,6 +23,20 @@ TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 
+# Legacy Markdown special chars. We escape user-controlled strings
+# (news headlines, scraped fundamentals) so a stray underscore in a
+# headline doesn't make Telegram reject the whole message.
+_MD_SPECIALS = ("_", "*", "`", "[")
+
+def md_safe(text: str) -> str:
+    if not text:
+        return ""
+    out = str(text)
+    for ch in _MD_SPECIALS:
+        out = out.replace(ch, "\\" + ch)
+    return out
+
+
 # ══════════════════════════════════════════════════════════
 # SEND FUNCTION
 # ══════════════════════════════════════════════════════════
@@ -47,6 +61,13 @@ def send_message(text: str) -> bool:
             return True
         if r.status_code == 400 and len(text) > 4000:
             return _send_long_message(text)
+        # Markdown parse failure — retry without formatting so the user
+        # still receives the report instead of a silent drop.
+        if r.status_code == 400 and "parse" in r.text.lower():
+            print(f"  Telegram Markdown parse failed — retrying as plain text")
+            data.pop("parse_mode", None)
+            r2 = requests.post(url, json=data, timeout=15)
+            return r2.status_code == 200
         print(f"  Telegram error: {r.status_code} {r.text[:100]}")
         return False
     except Exception as e:
@@ -138,20 +159,20 @@ def format_pick(result: dict, rank: int) -> str:
         msg += f"\n*Technical notes:*\n{warnings_text}"
 
     if fund_summary:
-        msg += f"\n🏢 *Company:* {fund_summary}\n"
+        msg += f"\n🏢 *Company:* {md_safe(fund_summary)}\n"
 
     if earnings_warning:
-        msg += f"\n{earnings_warning}\n"
+        msg += f"\n{md_safe(earnings_warning)}\n"
 
     if news_warnings:
         msg += f"\n*Recent news:*\n"
         for w in news_warnings[:2]:
-            msg += f"  {w}\n"
+            msg += f"  {md_safe(w)}\n"
 
     if news_headlines and has_danger_news:
         msg += f"\n*Headlines:*\n"
         for h in news_headlines[:2]:
-            msg += f"  _{h}_\n"
+            msg += f"  _{md_safe(h)}_\n"
 
     if timing_line:
         msg += f"\n{timing_line}\n"
