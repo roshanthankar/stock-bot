@@ -2,6 +2,7 @@
 .env.local
 .fyers_token.json
 .fyers_token_manual.txt
+.nse_holidays.json
 run_log.json
 __pycache__/
 *.pyc

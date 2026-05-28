@@ -55,25 +55,9 @@ def validate_credentials() -> bool:
 # TRADING DAY CHECK
 # ══════════════════════════════════════════════════════════
 
-NSE_HOLIDAYS = {
-    2026: [
-        "2026-01-26", "2026-02-19", "2026-03-20",
-        "2026-04-02", "2026-04-03", "2026-04-14",
-        "2026-05-01", "2026-08-15", "2026-08-27",
-        "2026-10-02", "2026-10-22", "2026-10-23",
-        "2026-11-04", "2026-12-25",
-    ],
-    2027: [
-        "2027-01-26", "2027-03-11", "2027-03-26",
-        "2027-04-14", "2027-05-01", "2027-08-15",
-        "2027-09-16", "2027-10-02", "2027-10-19",
-        "2027-11-10", "2027-12-25",
-    ],
-}
-LAST_KNOWN_HOLIDAY_YEAR = max(NSE_HOLIDAYS.keys())
-
-
 def is_trading_day() -> bool:
+    from nse_holidays import is_holiday
+
     today   = datetime.now()
     weekday = today.weekday()
 
@@ -81,12 +65,7 @@ def is_trading_day() -> bool:
         print(f"  Market check: Weekend — skipping")
         return False
 
-    if today.year > LAST_KNOWN_HOLIDAY_YEAR:
-        print(f"  ⚠️ NSE holiday list missing for {today.year} — "
-              f"only {LAST_KNOWN_HOLIDAY_YEAR} loaded. Update NSE_HOLIDAYS in main.py.")
-
-    holidays = NSE_HOLIDAYS.get(today.year, [])
-    if today.strftime("%Y-%m-%d") in holidays:
+    if is_holiday(today):
         print("  Market check: NSE Holiday — skipping")
         return False
 
