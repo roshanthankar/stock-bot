@@ -185,7 +185,8 @@ def format_pick(result: dict, rank: int) -> str:
 # FORMAT DAILY REPORT
 # ══════════════════════════════════════════════════════════
 
-def format_daily_report(picks: list, market_context: dict, stocks_scanned: int) -> str:
+def format_daily_report(picks: list, market_context: dict,
+                        stocks_scanned: int, performance: dict = None) -> str:
     today      = datetime.now().strftime("%A, %d %b %Y")
     now        = datetime.now().strftime("%I:%M %p")
     mkt_score  = market_context.get("market_score", 0)
@@ -218,6 +219,19 @@ def format_daily_report(picks: list, market_context: dict, stocks_scanned: int) 
         header += f"\n{caution}\n"
 
     header += f"📊 Scanned: {stocks_scanned} stocks\n"
+
+    if performance:
+        active = performance.get("active", 0)
+        wins   = performance.get("all_time_wins", 0)
+        losses = performance.get("all_time_losses", 0)
+        if active or wins or losses:
+            total = wins + losses
+            wr    = round(wins / total * 100) if total else 0
+            header += (
+                f"📈 Active: {active}  |  "
+                f"✅ {wins}W / ❌ {losses}L  |  "
+                f"Win rate: {wr}%\n"
+            )
 
     # ── No picks ──────────────────────────────────────────
     if not picks:

@@ -55,25 +55,9 @@ def validate_credentials() -> bool:
 # TRADING DAY CHECK
 # ══════════════════════════════════════════════════════════
 
-NSE_HOLIDAYS = {
-    2026: [
-        "2026-01-26", "2026-02-19", "2026-03-20",
-        "2026-04-02", "2026-04-03", "2026-04-14",
-        "2026-05-01", "2026-08-15", "2026-08-27",
-        "2026-10-02", "2026-10-22", "2026-10-23",
-        "2026-11-04", "2026-12-25",
-    ],
-    2027: [
-        "2027-01-26", "2027-03-11", "2027-03-26",
-        "2027-04-14", "2027-05-01", "2027-08-15",
-        "2027-09-16", "2027-10-02", "2027-10-19",
-        "2027-11-10", "2027-12-25",
-    ],
-}
-LAST_KNOWN_HOLIDAY_YEAR = max(NSE_HOLIDAYS.keys())
-
-
 def is_trading_day() -> bool:
+    from nse_holidays import is_holiday
+
     today   = datetime.now()
     weekday = today.weekday()
 
@@ -81,12 +65,7 @@ def is_trading_day() -> bool:
         print(f"  Market check: Weekend — skipping")
         return False
 
-    if today.year > LAST_KNOWN_HOLIDAY_YEAR:
-        print(f"  ⚠️ NSE holiday list missing for {today.year} — "
-              f"only {LAST_KNOWN_HOLIDAY_YEAR} loaded. Update NSE_HOLIDAYS in main.py.")
-
-    holidays = NSE_HOLIDAYS.get(today.year, [])
-    if today.strftime("%Y-%m-%d") in holidays:
+    if is_holiday(today):
         print("  Market check: NSE Holiday — skipping")
         return False
 
@@ -161,9 +140,12 @@ def _save_log(log: list):
         pass
 
 def log_run(status: str, picks: int, scanned: int, error: str = "",
-            open_picks: list = None):
+            open_picks: list = None, health: dict = None):
     """Append a run entry. open_picks is a list of {symbol, entry, target,
-    stop_loss, date} dicts that resolve_open_picks() will check next run."""
+    stop_loss, date} dicts that resolve_open_picks() will check next run.
+    health is a dict of external-dependency health flags (e.g.
+    {'earnings_api_ok': True, 'screener_ok': True}) used for state-
+    transition alerting."""
     log = _load_log()
     log.append({
         "date":       datetime.now().strftime("%Y-%m-%d"),
@@ -173,23 +155,52 @@ def log_run(status: str, picks: int, scanned: int, error: str = "",
         "scanned":    scanned,
         "error":      error,
         "open_picks": open_picks or [],
+        "health":     health or {},
     })
     _save_log(log)
+
+
+def _last_health(key: str) -> bool:
+    """Return the most recent value for a health flag from the run log.
+    Defaults True (assume healthy) when no prior run has the flag — that
+    way the first time the flag goes False, we send an outage alert."""
+    log = _load_log()
+    for entry in reversed(log):
+        health = entry.get("health", {})
+        if key in health:
+            return bool(health[key])
+    return True
+
+
+def alert_on_health_change(key: str, current_ok: bool,
+                            healthy_msg: str, outage_msg: str) -> None:
+    """Compare current health flag against last logged value. Sends a
+    Telegram alert only on transitions, so the user gets notified once
+    per outage and once per recovery rather than every run."""
+    from telegram_sender import send_message
+    prev_ok = _last_health(key)
+    if current_ok == prev_ok:
+        return
+    send_message(healthy_msg if current_ok else outage_msg)
 
 
 def resolve_open_picks(fyers) -> dict:
     """Check every open pick from prior runs against current price.
     Records a 'WIN' if high since entry >= target, 'LOSS' if low <= stop,
-    or leaves it open. Returns counts for the current week."""
+    or leaves it open. Returns counts plus picks that flipped this run."""
     from fyers_fetcher import get_historical_data
 
     log = _load_log()
     if not log:
-        return {"wins": 0, "losses": 0, "open": 0,
-                "all_time_wins": 0, "all_time_losses": 0}
+        return {
+            "wins": 0, "losses": 0, "open": 0, "active": 0,
+            "all_time_wins": 0, "all_time_losses": 0,
+            "newly_resolved": [],
+        }
 
-    today  = datetime.now()
-    cutoff = today - timedelta(days=7)
+    today           = datetime.now()
+    cutoff          = today - timedelta(days=7)
+    newly_resolved  = []
 
     for entry in log:
         for pick in entry.get("open_picks", []):
@@ -219,17 +230,25 @@ def resolve_open_picks(fyers) -> dict:
             max_high = float(since["high"].max())
             min_low  = float(since["low"].min())
 
+            outcome = None
             if max_high >= pick["target"]:
-                pick["outcome"] = "WIN"
+                outcome = "WIN"
             elif min_low <= pick["stop_loss"]:
-                pick["outcome"] = "LOSS"
+                outcome = "LOSS"
             elif days_held >= 21:
-                pick["outcome"] = "EXPIRED"
+                outcome = "EXPIRED"
+
+            if outcome:
+                pick["outcome"]    = outcome
+                pick["max_high"]   = round(max_high, 2)
+                pick["min_low"]    = round(min_low, 2)
+                pick["days_held"]  = days_held
+                newly_resolved.append({**pick, "outcome": outcome})
 
     _save_log(log)
 
     week_wins = week_losses = week_open = 0
-    all_wins  = all_losses = 0
+    all_wins  = all_losses = active = 0
 
     for entry in log:
         try:
@@ -246,24 +265,29 @@ def resolve_open_picks(fyers) -> dict:
             elif outcome == "LOSS":
                 all_losses += 1
                 if in_week: week_losses += 1
-            elif in_week:
-                week_open += 1
+            elif outcome in ("OPEN", "", None):
+                active += 1
+                if in_week: week_open += 1
 
     return {
         "wins":            week_wins,
         "losses":          week_losses,
         "open":            week_open,
+        "active":          active,
         "all_time_wins":   all_wins,
         "all_time_losses": all_losses,
+        "newly_resolved":  newly_resolved,
     }
 
 
-def get_weekly_performance(fyers=None) -> dict:
-    """Resolves any open picks against today's prices, then summarises."""
-    stats = resolve_open_picks(fyers) if fyers else {
-        "wins": 0, "losses": 0, "open": 0,
-        "all_time_wins": 0, "all_time_losses": 0,
-    }
+def get_weekly_performance(fyers=None, stats: dict = None) -> dict:
+    """Summarise performance for the Friday report. Accepts pre-computed
+    stats from resolve_open_picks to avoid double-resolving in one run."""
+    if stats is None:
+        stats = resolve_open_picks(fyers) if fyers else {
+            "wins": 0, "losses": 0, "open": 0,
+            "all_time_wins": 0, "all_time_losses": 0,
+        }
     total = stats["all_time_wins"] + stats["all_time_losses"]
     all_time_wr = round(stats["all_time_wins"] / total * 100) if total else 0
     return {
@@ -272,6 +296,38 @@ def get_weekly_performance(fyers=None) -> dict:
         "open":              stats["open"],
         "all_time_win_rate": all_time_wr,
     }
+
+
+def format_resolution_alert(pick: dict) -> str:
+    """One-line Telegram message for a newly resolved pick."""
+    sym       = pick["symbol"]
+    outcome   = pick["outcome"]
+    entry     = pick["entry"]
+    target    = pick["target"]
+    stop      = pick["stop_loss"]
+    days      = pick.get("days_held", 0)
+
+    if outcome == "WIN":
+        gain = round((target - entry) / entry * 100, 1)
+        return (
+            f"✅ *{sym} HIT TARGET*\n"
+            f"Entry ₹{entry} → Target ₹{target}  ({gain:+.1f}%)\n"
+            f"Resolved in {days} days. Consider booking profit if still holding."
+        )
+    if outcome == "LOSS":
+        loss = round((stop - entry) / entry * 100, 1)
+        return (
+            f"❌ *{sym} HIT STOP LOSS*\n"
+            f"Entry ₹{entry} → Stop ₹{stop}  ({loss:+.1f}%)\n"
+            f"Resolved in {days} days. Exit if still holding."
+        )
+    if outcome == "EXPIRED":
+        return (
+            f"⏳ *{sym} POSITION EXPIRED*\n"
+            f"Entry ₹{entry} — neither target ₹{target} nor stop ₹{stop} hit "
+            f"in {days} days. Re-evaluate."
+        )
+    return ""
 
 
 # ══════════════════════════════════════════════════════════
@@ -320,10 +376,27 @@ def run():
           f"GIFT gap: {market['gift_nifty_gap']:+.2f}% | "
           f"VIX: {market['vix']:.1f}")
 
+    # ── Resolve open picks from prior runs ────────────────
+    # Runs daily so users get same-day WIN/LOSS notifications,
+    # not just a Friday digest.
+    print("\n  Resolving open picks from prior runs...")
+    perf_stats = resolve_open_picks(fyers)
+    print(f"  Active: {perf_stats['active']} | "
+          f"All-time: {perf_stats['all_time_wins']}W / "
+          f"{perf_stats['all_time_losses']}L | "
+          f"Newly resolved this run: {len(perf_stats['newly_resolved'])}")
+
+    for pick in perf_stats["newly_resolved"]:
+        alert = format_resolution_alert(pick)
+        if alert:
+            send_message(alert)
+
     # ── Friday report ─────────────────────────────────────
     if weekday == 4:
         print("\n  Sending Friday performance report...")
-        send_message(format_friday_report(get_weekly_performance(fyers)))
+        send_message(format_friday_report(
+            get_weekly_performance(fyers, stats=perf_stats)
+        ))
 
     # ── Fetch stock data ──────────────────────────────────
     print(f"\n  Fetching {len(ALL_STOCKS)} stocks...")
@@ -340,9 +413,15 @@ def run():
 
     # ── Fundamental check (all candidates) ───────────────
     # Fast — Screener.in light check, only on technical candidates
+    screener_ok = True   # default — only flip on a confident judgment
     if all_results:
         candidate_symbols = [r["symbol"] for r in all_results]
         fundamentals      = fundamental_check(candidate_symbols)
+
+        # Judge scraper health only with enough samples to be confident
+        if len(candidate_symbols) >= 5:
+            with_pe = sum(1 for f in fundamentals.values() if f.get("pe_ratio"))
+            screener_ok = with_pe > 0
 
         filtered = []
         for r in all_results:
@@ -375,15 +454,41 @@ def run():
             r["has_danger_news"]= news.get("has_danger_news", False)
 
     # ── Earnings check (final picks only — 2-3 stocks) ───
+    earnings_api_ok = True   # default to last-known state if we don't check
     if final_picks:
         pick_symbols     = [r["symbol"] for r in final_picks]
         earnings_results = check_earnings_batch(pick_symbols)
+
+        from earnings_checker import calendar_available
+        earnings_api_ok = calendar_available()
 
         for r in final_picks:
             earn = earnings_results.get(r["symbol"], {})
             r["earnings_warning"]     = earn.get("warning", "")
             r["has_upcoming_results"] = earn.get("has_upcoming_results", False)
             r["results_date"]         = earn.get("results_date", "")
+    else:
+        # No picks today — preserve last known earnings_api_ok state
+        earnings_api_ok = _last_health("earnings_api_ok")
+
+    # ── Health alerts (state-transition only) ─────────────
+    alert_on_health_change(
+        "earnings_api_ok", earnings_api_ok,
+        healthy_msg=("✅ *Earnings calendar back online*\n"
+                     "NSE earnings API is responding again. Picks are "
+                     "being earnings-filtered."),
+        outage_msg= ("⚠️ *Earnings calendar offline*\n"
+                     "NSE earnings API is blocked. Picks are NOT being "
+                     "earnings-filtered until it recovers."),
+    )
+    alert_on_health_change(
+        "screener_ok", screener_ok,
+        healthy_msg=("✅ *Screener.in scraper back online*\n"
+                     "Fundamentals are being verified again."),
+        outage_msg= ("⚠️ *Screener.in scraper broken*\n"
+                     "No PE ratios returned across the batch — their HTML "
+                     "likely changed. Fundamentals are NOT being verified."),
+    )
 
     elapsed = round(time.time() - start_time, 1)
     print(f"\n  Final picks: {len(final_picks)} | "
@@ -395,9 +500,15 @@ def run():
     report = format_daily_report(
         picks          = final_picks,
         market_context = market,
-        stocks_scanned = len(stock_data)
+        stocks_scanned = len(stock_data),
+        performance    = perf_stats,
     )
     sent = send_message(report)
+
+    health = {
+        "earnings_api_ok": earnings_api_ok,
+        "screener_ok":     screener_ok,
+    }
 
     if sent:
         print("  ✅ Report sent successfully")
@@ -412,7 +523,7 @@ def run():
             for p in final_picks
         ]
         log_run("SUCCESS", len(final_picks), len(stock_data),
-                open_picks=open_picks)
+                open_picks=open_picks, health=health)
 
         # Push to iOS widget
         from gist_pusher import push_to_gist, push_no_picks
@@ -423,7 +534,8 @@ def run():
 
     else:
         print("  ❌ Failed to send report")
-        log_run("FAILED", 0, len(stock_data), "Telegram send failed")
+        log_run("FAILED", 0, len(stock_data), "Telegram send failed",
+                health=health)
 
     print(f"\n{'='*50}")
     print(f"DONE — {len(final_picks)} picks sent in {elapsed}s")
