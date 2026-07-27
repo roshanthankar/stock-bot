@@ -79,12 +79,18 @@ def _send_long_message(text: str) -> bool:
     parts = []
     while len(text) > 4000:
         split_at = text[:4000].rfind("\n")
-        if split_at == -1:
+        # rfind returns 0 if the only newline is at pos 0; that would loop
+        # forever appending empty parts. Fall back to a hard split.
+        if split_at <= 0:
             split_at = 4000
         parts.append(text[:split_at])
         text = text[split_at:]
     parts.append(text)
-    return all(send_message(p) for p in parts)
+    # Send every part even if one fails, so the user gets as much of the
+    # report as possible instead of a silent partial-drop from all()'s
+    # short-circuit.
+    results = [send_message(p) for p in parts]
+    return all(results)
 
 
 # ══════════════════════════════════════════════════════════

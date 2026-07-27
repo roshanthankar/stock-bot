@@ -16,6 +16,7 @@ Philosophy (Option B):
 import requests
 import time
 from datetime import datetime, timedelta
+from urllib.parse import quote_plus
 from xml.etree import ElementTree as ET
 
 
@@ -60,9 +61,12 @@ def _fetch_google_news(symbol: str) -> list:
     No date filter — top 20 headlines regardless of age.
     Bad news (fraud, CEO exit) stays relevant for months.
     """
+    # quote_plus so symbols with `&` (e.g. M&M, M&MFIN) don't corrupt the
+    # query string — otherwise Google would search for just "M".
+    query = quote_plus(f"{symbol} NSE India")
     url = (
         f"https://news.google.com/rss/search"
-        f"?q={symbol}+NSE+India&hl=en-IN&gl=IN&ceid=IN:en"
+        f"?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
     )
     try:
         r = requests.get(url, headers=HEADERS, timeout=8)
