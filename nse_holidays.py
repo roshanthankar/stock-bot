@@ -117,7 +117,16 @@ def get_holidays() -> List[str]:
     except Exception as e:
         print(f"  ⚠️ NSE holiday fetch failed ({e}) — using fallback list")
 
-    return FALLBACK_HOLIDAYS.get(datetime.now().year, [])
+    current_year = datetime.now().year
+    fallback     = FALLBACK_HOLIDAYS.get(current_year, [])
+    if not fallback:
+        # Both live fetch and fallback failed. Without this warning the bot
+        # would silently trade on every real holiday until someone notices.
+        max_known = max(FALLBACK_HOLIDAYS.keys()) if FALLBACK_HOLIDAYS else current_year
+        print(f"  🚨 CRITICAL: no holiday data for {current_year} "
+              f"(fallback ends at {max_known}). Bot may fire on holidays — "
+              f"update FALLBACK_HOLIDAYS in nse_holidays.py.")
+    return fallback
 
 
 def is_holiday(date: Optional[datetime] = None) -> bool:

@@ -224,27 +224,39 @@ def to_fyers_symbol(symbol: str) -> str:
     return f"NSE:{fyers_sym}-EQ"
 
 
+def _last_thursday(year: int, month: int) -> int:
+    """Day-of-month of the last Thursday in the given month."""
+    import calendar
+    _, last_day = calendar.monthrange(year, month)
+    for day in range(last_day, last_day - 7, -1):
+        if datetime(year, month, day).weekday() == 3:  # Mon=0 ... Thu=3
+            return day
+    return last_day  # unreachable in practice
+
+
 def _get_gift_nifty_symbol() -> str:
     """
     Build dynamic GIFT Nifty symbol for current month.
     Format: NSE_IX:NIFTY{YY}{MON}FUT
     Example: NSE_IX:NIFTY26MARFUT (March 2026)
 
-    If current month's contract near expiry (after 20th),
-    use next month's contract.
+    Nifty monthly futures expire on the LAST THURSDAY of the month. On/after
+    that date the current-month contract stops trading, so we roll to the
+    next month. Previous heuristic used day > 20 which rolled early on
+    months where the last Thursday fell later (e.g. the 25th–30th) and
+    pulled prices from a low-liquidity next-month contract.
     """
-    now = datetime.now()
-    # Use next month if past 20th (near expiry)
-    if now.day > 20:
+    now      = datetime.now()
+    expiry   = _last_thursday(now.year, now.month)
+    roll     = now.day >= expiry
+
+    if roll:
         if now.month == 12:
-            year  = now.year + 1
-            month = 1
+            year, month = now.year + 1, 1
         else:
-            year  = now.year
-            month = now.month + 1
+            year, month = now.year, now.month + 1
     else:
-        year  = now.year
-        month = now.month
+        year, month = now.year, now.month
 
     month_abbr = datetime(year, month, 1).strftime("%b").upper()  # JAN, FEB, MAR...
     year_2d    = str(year)[-2:]                                     # 26, 27...
