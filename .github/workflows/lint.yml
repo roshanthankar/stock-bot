@@ -1,29 +1,11 @@
-name: Lint
+name: Lint (disabled)
 
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+# Workflow disabled — project is no longer running on GitHub Actions.
+on: []
 
 jobs:
   syntax-check:
     runs-on: ubuntu-latest
+    if: false
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Compile all Python files
-        run: python -m compileall -q .
-
-      - name: Install dependencies for import check
-        run: pip install -r requirements.txt
-
-      - name: Import smoke test
-        run: |
-          python -c "import main, analyzer, fyers_fetcher, telegram_sender, \
-                            fundamental_checker, news_checker, earnings_checker, \
-                            gist_pusher, stocks_list"
+      - run: echo "disabled"

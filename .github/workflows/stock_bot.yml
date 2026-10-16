@@ -1,36 +1,12 @@
-name: Stock Bot — Daily Run
+name: Stock Bot — Daily Run (disabled)
 
-on:
-  schedule:
-    - cron: '30 2 * * 1-5'  # 8:00 AM IST = 2:30 AM UTC, weekdays only
-  workflow_dispatch:          # Also allows manual trigger from GitHub
+# Workflow disabled — project is no longer running on GitHub Actions.
+# To re-enable, restore `on:` triggers (schedule / workflow_dispatch).
+on: []
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    if: false
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies
-        run: |
-          pip install fyers-apiv3 pyotp requests pandas numpy \
-                      python-dotenv ta
-
-      - name: Run bot
-        env:
-          FYERS_APP_ID:      ${{ secrets.FYERS_APP_ID }}
-          FYERS_SECRET_KEY:  ${{ secrets.FYERS_SECRET_KEY }}
-          FYERS_CLIENT_ID:   ${{ secrets.FYERS_CLIENT_ID }}
-          FYERS_PIN:         ${{ secrets.FYERS_PIN }}
-          FYERS_TOTP_SECRET: ${{ secrets.FYERS_TOTP_SECRET }}
-          TELEGRAM_TOKEN:    ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_CHAT_ID }}
-          GH_TOKEN:          ${{ secrets.GH_TOKEN }}
-          GIST_ID:           ${{ secrets.GIST_ID }}
-        run: python main.py
+      - run: echo "disabled"
