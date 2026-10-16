@@ -2,11 +2,10 @@
 stocks_list.py
 ==============
 229 best NSE stocks across 28 sectors.
-All symbols verified against Fyers API format.
 
 Symbol corrections:
-- LTIMINDTREE → LTIM (Fyers symbol)
-- AARTI → AARTIIND (Fyers symbol)
+- LTIMINDTREE → LTIM
+- AARTI → AARTIIND
 - TATAMOTORS verified correct
 Last updated: March 2026
 """

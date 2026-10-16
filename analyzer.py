@@ -577,26 +577,3 @@ def analyse_all(stock_data: dict) -> list:
             print(f"     ...and {len(errors) - 5} more")
 
     return results
-
-
-if __name__ == "__main__":
-    from fyers_fetcher import fetch_batch, get_fyers_client
-    from stocks_list import ALL_STOCKS
-
-    client = get_fyers_client()
-    if client:
-        data    = fetch_batch(ALL_STOCKS[:20])
-        results = analyse_all(data)
-
-        print(f"\n{'='*50}")
-        print(f"Results: {len(results)} candidates")
-        print(f"{'='*50}")
-        for r in results:
-            print(f"\n{r['symbol']} — {r['signal']} ({r['confidence']}%)")
-            print(f"  Type:      {r['signal_type']} {r['emoji']}")
-            print(f"  Price:     ₹{r['price']:.2f}")
-            print(f"  Target:    ₹{r['target']:.2f} (+{r['upside_pct']:.1f}%)")
-            print(f"  Stop Loss: ₹{r['stop_loss']:.2f} (-{r['downside_pct']:.1f}%)")
-            print(f"  R/R:       {r['risk_reward']:.2f}x")
-            for reason in r["reasons"]:
-                print(f"  • {reason}")

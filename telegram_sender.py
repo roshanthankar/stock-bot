@@ -270,8 +270,7 @@ def format_daily_report(picks: list, market_context: dict,
         f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"⚠️ _Opportunity signals only — not guaranteed profits. "
         f"Always set stop loss before buying. "
-        f"Check news manually before acting._\n"
-        f"_Data: Fyers API (Official NSE)_"
+        f"Check news manually before acting._"
     )
 
     return header + picks_section + picks_body + footer
