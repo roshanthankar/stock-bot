@@ -10,21 +10,15 @@ Setup (one-time):
   2. Go to gist.github.com → Create new public Gist
      → Filename: stock_picks.json → Content: {} → Create
      → Copy the Gist ID from the URL
-  3. Add to your .env:
-       GITHUB_TOKEN=your_personal_access_token
+  3. Export as environment variables before running:
+       GH_TOKEN=your_personal_access_token
        GIST_ID=your_gist_id
-  4. Add same secrets to GitHub Actions repo secrets
-
-Called from main.py after successful report send.
 """
 
 import os
 import json
 import requests
 from datetime import datetime
-from dotenv import load_dotenv
-
-load_dotenv()
 
 GITHUB_TOKEN = os.getenv("GH_TOKEN", "")
 GIST_ID      = os.getenv("GIST_ID", "")

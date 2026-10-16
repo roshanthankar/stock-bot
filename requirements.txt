@@ -1,6 +1,3 @@
-pyotp
 requests
 pandas
 numpy
-python-dotenv
-ta
